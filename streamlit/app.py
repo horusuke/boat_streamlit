@@ -10,8 +10,11 @@ import lightgbm as lgb
 import re
 import os
 
+# app.py があるディレクトリを基準にパスを解決（Streamlit Cloud などデプロイ先で cwd が異なる対策）
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# モデルファイルのパスマッピング
+
+# モデルファイルのパスマッピング（BASE_DIR からの相対パス）
 MODEL_PATHS = {
     '桐生': {
         'course_1': 'モデル/一月用モデル/桐生1_5_78910_56位モデル_0125_0.68.txt',
@@ -42,8 +45,6 @@ MODEL_PATHS = {
         'course_6': 'モデル/一月用モデル/福岡6_78910_456位モデル_0125_0.82.txt'
     }
 }
-
-bst = lgb.Booster(model_file='モデル/一月用モデル/江戸川6_78910_3456位モデル_0125_0.95.txt')
 
 
 def extract_threshold_from_filename(file_path):
@@ -733,9 +734,21 @@ if not df.empty:
             st.dataframe(df, use_container_width=True)
     
     test_df = prepare_df(df)
-    required_columns = bst.feature_name()
-
-
+    # 特徴量名取得用に1つモデルを読み込む（起動時は読まない＝デプロイ時のファイル未存在エラーを防ぐ）
+    venue_name_for_model = st.session_state.selected_venue_name if st.session_state.selected_venue_name else None
+    if venue_name_for_model and venue_name_for_model in MODEL_PATHS:
+        _model_path = MODEL_PATHS[venue_name_for_model]['course_1']
+    else:
+        _model_path = next(iter(MODEL_PATHS.values()))['course_1']
+    _model_path_abs = os.path.join(BASE_DIR, _model_path)
+    try:
+        if os.path.exists(_model_path_abs):
+            _bst = lgb.Booster(model_file=_model_path_abs)
+            required_columns = _bst.feature_name()
+        else:
+            required_columns = list(test_df.columns)
+    except Exception:
+        required_columns = list(test_df.columns)
 
     # 不足しているカラム
     missing_columns = [col for col in required_columns if col not in test_df.columns]
@@ -783,9 +796,10 @@ if not df.empty:
                         # コース1のモデルを読み込み
             if not test_df.empty:
                 model_path_1 = MODEL_PATHS[venue_name]['course_1']
+                model_path_1_abs = os.path.join(BASE_DIR, model_path_1)
                 threshold_1 = extract_threshold_from_filename(model_path_1)
                 model_filename_1 = os.path.basename(model_path_1)
-                bst_1 = lgb.Booster(model_file=model_path_1)
+                bst_1 = lgb.Booster(model_file=model_path_1_abs)
                 pred1 = bst_1.predict(test_df)
                 test_df['1_5号艇着外予測数値'] = pred1
                 pred1_binary = (pred1 > threshold_1).astype(int) 
@@ -799,9 +813,10 @@ if not df.empty:
             # コース6のモデルを読み込み
             if not test_df6.empty:
                 model_path_6 = MODEL_PATHS[venue_name]['course_6']
+                model_path_6_abs = os.path.join(BASE_DIR, model_path_6)
                 threshold_6 = extract_threshold_from_filename(model_path_6)
                 model_filename_6 = os.path.basename(model_path_6)
-                bst_6 = lgb.Booster(model_file=model_path_6)
+                bst_6 = lgb.Booster(model_file=model_path_6_abs)
                 pred6 = bst_6.predict(test_df6)
                 test_df6['6号艇着外予測数値'] = pred6
                 pred6_binary = (pred6 > threshold_6).astype(int) 
